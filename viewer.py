@@ -1,6 +1,6 @@
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gdk
+from gi.repository import Gtk, GLib, Gdk, Gio
 
 import sys
 import imaplib
@@ -28,61 +28,60 @@ class EmailClient(Gtk.ApplicationWindow):
         self.set_title("IMAP Email Client")
         self.set_default_size(800, 600)
 
-        # Dark theme
-        style = self.get_style_context()
-        style.add_class("dark")
-        css = """
-        .dark {
-            background-color: #2E2E2E;
-            color: #FFFFFF;
-        }
-        entry {
-            background-color: #4E4E4E;
-            color: #FFFFFF;
-        }
-        button {
-            background-color: #4E4E4E;
-            color: #FFFFFF;
-        }
-        """
-        style_provider = Gtk.CssProvider()
-        style_provider.load_from_data(bytes(css.encode()))
-        style_context = self.get_style_context()
-        style_context.add_provider_for_display(Gdk.Display.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # Create the main layout
+        self.create_main_layout()
 
-        # Create main layout
+        # Create the header bar
+        self.create_header_bar()
+
+        # Create the login page
+        self.create_login_page()
+
+        # Create the email list page
+        self.create_email_list_page()
+
+    def create_main_layout(self):
         self.stack = Gtk.Stack()
         self.set_child(self.stack)
 
-        self.create_login_page()
-        self.create_email_list_page()
+    def create_header_bar(self):
+        header_bar = Gtk.HeaderBar()
+        header_bar.set_show_title_buttons(True)
+        self.set_titlebar(header_bar)
 
     def create_login_page(self):
         login_grid = Gtk.Grid()
         login_grid.set_column_spacing(10)
         login_grid.set_row_spacing(10)
+        login_grid.set_margin_top(24)
+        login_grid.set_margin_bottom(24)
+        login_grid.set_margin_start(24)
+        login_grid.set_margin_end(24)
 
         self.email_entry = Gtk.Entry()
+        self.email_entry.set_placeholder_text("Email")
         self.password_entry = Gtk.Entry()
+        self.password_entry.set_placeholder_text("Password")
         self.password_entry.set_visibility(False)
+        self.password_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
 
-        login_grid.attach(Gtk.Label(label="Email:"), 0, 0, 1, 1)
-        login_grid.attach(self.email_entry, 1, 0, 1, 1)
-        login_grid.attach(Gtk.Label(label="Password:"), 0, 1, 1, 1)
-        login_grid.attach(self.password_entry, 1, 1, 1, 1)
+        login_grid.attach(self.email_entry, 0, 0, 2, 1)
+        login_grid.attach(self.password_entry, 0, 1, 2, 1)
 
         login_button = Gtk.Button(label="Login")
+        login_button.get_style_context().add_class("suggested-action")
         login_button.connect("clicked", self.on_login_button_clicked)
-        login_grid.attach(login_button, 1, 2, 1, 1)
+        login_grid.attach(login_button, 0, 2, 2, 1)
 
         self.stack.add_child(login_grid)
 
     def create_email_list_page(self):
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         self.email_list_store = Gtk.ListStore(str, str, str)  # (Sender, Subject, Date)
 
         self.treeview = Gtk.TreeView(model=self.email_list_store)
+        self.treeview.get_style_context().add_class("email-list")
 
         for i, column_title in enumerate(["Sender", "Subject", "Date"]):
             renderer = Gtk.CellRendererText()
@@ -94,12 +93,13 @@ class EmailClient(Gtk.ApplicationWindow):
         scrolled_window.set_child(self.treeview)
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        button_box.get_style_context().add_class("email-list-buttons")
 
-        self.prev_button = Gtk.Button(label="Previous")
+        self.prev_button = Gtk.Button.new_from_icon_name("go-previous-symbolic")
         self.prev_button.connect("clicked", self.on_prev_button_clicked)
         button_box.append(self.prev_button)
 
-        self.next_button = Gtk.Button(label="Next")
+        self.next_button = Gtk.Button.new_from_icon_name("go-next-symbolic")
         self.next_button.connect("clicked", self.on_next_button_clicked)
         button_box.append(self.next_button)
 
