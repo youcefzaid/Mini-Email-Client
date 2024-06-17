@@ -50,13 +50,13 @@ class EmailClient(Gtk.ApplicationWindow):
         self.set_titlebar(header_bar)
 
     def create_login_page(self):
+        login_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        login_box.set_halign(Gtk.Align.CENTER)
+        login_box.set_valign(Gtk.Align.CENTER)
+
         login_grid = Gtk.Grid()
         login_grid.set_column_spacing(10)
         login_grid.set_row_spacing(10)
-        login_grid.set_margin_top(24)
-        login_grid.set_margin_bottom(24)
-        login_grid.set_margin_start(24)
-        login_grid.set_margin_end(24)
 
         self.email_entry = Gtk.Entry()
         self.email_entry.set_placeholder_text("Email")
@@ -73,7 +73,9 @@ class EmailClient(Gtk.ApplicationWindow):
         login_button.connect("clicked", self.on_login_button_clicked)
         login_grid.attach(login_button, 0, 2, 2, 1)
 
-        self.stack.add_child(login_grid)
+        login_box.append(login_grid)
+        login_page = self.stack.add_child(login_box)
+        login_page.set_name("login")
 
     def create_email_list_page(self):
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -86,6 +88,7 @@ class EmailClient(Gtk.ApplicationWindow):
         for i, column_title in enumerate(["Sender", "Subject", "Date"]):
             renderer = Gtk.CellRendererText()
             column = Gtk.TreeViewColumn(column_title, renderer, text=i)
+            column.set_resizable(True)
             self.treeview.append_column(column)
 
         scrolled_window = Gtk.ScrolledWindow()
@@ -94,6 +97,10 @@ class EmailClient(Gtk.ApplicationWindow):
 
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         button_box.get_style_context().add_class("email-list-buttons")
+        button_box.set_margin_top(12)
+        button_box.set_margin_bottom(12)
+        button_box.set_margin_start(12)
+        button_box.set_margin_end(12)
 
         self.prev_button = Gtk.Button.new_from_icon_name("go-previous-symbolic")
         self.prev_button.connect("clicked", self.on_prev_button_clicked)
@@ -102,6 +109,10 @@ class EmailClient(Gtk.ApplicationWindow):
         self.next_button = Gtk.Button.new_from_icon_name("go-next-symbolic")
         self.next_button.connect("clicked", self.on_next_button_clicked)
         button_box.append(self.next_button)
+
+        self.logout_button = Gtk.Button(label="Logout")
+        self.logout_button.connect("clicked", self.on_logout_button_clicked)
+        button_box.append(self.logout_button)
 
         vbox.append(scrolled_window)
         vbox.append(button_box)
@@ -112,6 +123,31 @@ class EmailClient(Gtk.ApplicationWindow):
         self.email_list = []
         self.current_page = 0
         self.emails_per_page = 20
+
+    def on_login_button_clicked(self, widget):
+        email = self.email_entry.get_text().strip()
+        if not email:
+            print("Please enter an email address")
+            return
+
+        password = self.password_entry.get_text()
+        settings = get_imap_settings(email)
+
+        if settings:
+            hostname = settings["Hostname"]
+            port = settings["Port"]
+            try:
+                self.mail = imaplib.IMAP4_SSL(hostname, port)
+                self.mail.login(email, password)
+                print("Login successful")
+
+                # Fetch emails in a separate thread
+                self.fetch_thread = threading.Thread(target=self.fetch_emails)
+                self.fetch_thread.start()
+            except Exception as e:
+                print(f"Login failed: {e}")
+        else:
+            print("Invalid email address")
 
     def on_login_button_clicked(self, widget):
         email = self.email_entry.get_text()
@@ -133,6 +169,15 @@ class EmailClient(Gtk.ApplicationWindow):
                 print(f"Login failed: {e}")
         else:
             print("Domain not supported")
+
+    def on_logout_button_clicked(self, widget):
+        try:
+            self.mail.logout()
+        except Exception as e:
+            print(f"Logout failed: {e}")
+        finally:
+            self.stack.set_visible_child(self.stack.get_child_by_name("login"))
+            self.mail = None
 
     def fetch_emails(self):
         self.mail.select("inbox")
@@ -182,6 +227,7 @@ class EmailClient(Gtk.ApplicationWindow):
         if (self.current_page + 1) * self.emails_per_page < len(self.email_list):
             self.current_page += 1
             self.display_emails(self.current_page)
+
 
 app = Gtk.Application(application_id='com.example.emailclient')
 app.connect('activate', lambda app: EmailClient(application=app).show())
