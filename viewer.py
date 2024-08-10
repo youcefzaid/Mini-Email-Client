@@ -10,6 +10,7 @@ from email.header import decode_header
 import threading
 import re
 
+# Retrieves IMAP settings for a given email address
 def get_imap_settings(email):
     domain = email.split('@')[-1]
     
@@ -42,20 +43,16 @@ class EmailClient(Gtk.ApplicationWindow):
         self.set_default_size(800, 600)
 
         self.create_main_layout()
-        self.create_header_bar()
         self.create_login_page()
         self.create_email_list_page()
         self.create_email_content_page()
 
+    # Creates the main layout stack
     def create_main_layout(self):
         self.stack = Gtk.Stack()
         self.set_child(self.stack)
 
-    def create_header_bar(self):
-        header_bar = Gtk.HeaderBar()
-        header_bar.set_show_title_buttons(True)
-        self.set_titlebar(header_bar)
-
+    # Creates the login page UI
     def create_login_page(self):
         login_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         login_box.set_margin_top(48)
@@ -83,9 +80,15 @@ class EmailClient(Gtk.ApplicationWindow):
         self.spinner = Gtk.Spinner()
         self.spinner.set_size_request(24, 24)
 
+        self.error_label = Gtk.Label()
+        self.error_label.get_style_context().add_class("error-message")
+        self.error_label.set_visible(False)
+        login_box.append(self.error_label)
+
         login_page = self.stack.add_child(login_box)
         login_page.set_name("login")
 
+    # Creates the email list page UI
     def create_email_list_page(self):
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         vbox.set_margin_top(12)
@@ -93,11 +96,9 @@ class EmailClient(Gtk.ApplicationWindow):
         vbox.set_margin_start(12)
         vbox.set_margin_end(12)
 
-        # Search bar
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        search_box.set_halign(Gtk.Align.CENTER)
-        search_box.set_margin_bottom(12)
-
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_width_chars(30)
         search_box.append(self.search_entry)
@@ -107,10 +108,20 @@ class EmailClient(Gtk.ApplicationWindow):
         search_button.connect("clicked", self.on_search_button_clicked)
         search_box.append(search_button)
 
-        vbox.append(search_box)
+        top_bar.append(search_box)
 
-        # Email list
-        self.email_list_store = Gtk.ListStore(str, str, str, str)  # (Date, Sender, Subject, ID)
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        top_bar.append(spacer)
+
+        self.logout_button = Gtk.Button(label="Logout")
+        self.logout_button.connect("clicked", self.on_logout_clicked)
+        self.logout_button.set_visible(False)
+        top_bar.append(self.logout_button)
+
+        vbox.append(top_bar)
+
+        self.email_list_store = Gtk.ListStore(str, str, str, str)
         self.treeview = Gtk.TreeView(model=self.email_list_store)
         self.treeview.get_style_context().add_class("email-list")
 
@@ -135,7 +146,6 @@ class EmailClient(Gtk.ApplicationWindow):
         scrolled_window.set_child(self.treeview)
         vbox.append(scrolled_window)
 
-        # Pagination
         pagination_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         pagination_box.set_halign(Gtk.Align.CENTER)
 
@@ -159,6 +169,7 @@ class EmailClient(Gtk.ApplicationWindow):
         self.current_page = 0
         self.emails_per_page = 20
 
+    # Creates the email content page UI
     def create_email_content_page(self):
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         content_box.set_margin_top(12)
@@ -192,10 +203,11 @@ class EmailClient(Gtk.ApplicationWindow):
         email_content_page = self.stack.add_child(content_box)
         email_content_page.set_name("email_content")
 
+    # Handles login button click
     def on_login_button_clicked(self, widget):
         login_info = self.login_entry.get_text().strip()
         if ':' not in login_info:
-            print("Invalid input format. Please use 'Email:Password'")
+            self.show_error("Invalid input format. Please use 'Email:Password'")
             return
 
         email, password = login_info.split(':', 1)
@@ -205,10 +217,12 @@ class EmailClient(Gtk.ApplicationWindow):
             self.login_button.set_sensitive(False)
             self.login_button.set_child(self.spinner)
             self.spinner.start()
+            self.error_label.set_visible(False)
             GLib.idle_add(self.connect_and_fetch_emails, email, password, settings)
         else:
-            print(f"No IMAP settings found for email: {email}")
+            self.show_error(f"No IMAP settings found for email: {email}")
 
+    # Connects to IMAP server and fetches emails
     def connect_and_fetch_emails(self, email, password, settings):
         try:
             hostname = settings["Hostname"]
@@ -219,24 +233,40 @@ class EmailClient(Gtk.ApplicationWindow):
 
             self.fetch_emails()
             self.display_emails_and_update_ui(self.current_page)
+            self.logout_button.set_visible(True)
+        except imaplib.IMAP4.error as e:
+            error_message = str(e)
+            GLib.idle_add(self.show_error, f"Login failed: {error_message}")
         except Exception as e:
-            print(f"Login failed: {e}")
+            GLib.idle_add(self.show_error, f"An error occurred: {str(e)}")
         finally:
-            self.login_button.set_sensitive(True)
-            self.login_button.set_child(None)
-            self.login_button.set_label("Sign in")
-            self.spinner.stop()
+            GLib.idle_add(self.reset_login_button)
 
+    # Displays error message
+    def show_error(self, message):
+        self.error_label.set_text(message)
+        self.error_label.set_visible(True)
+
+    # Resets login button state
+    def reset_login_button(self):
+        self.login_button.set_sensitive(True)
+        self.login_button.set_child(None)
+        self.login_button.set_label("Sign in")
+        self.spinner.stop()
+
+    # Fetches emails from IMAP server
     def fetch_emails(self):
         self.mail.select("inbox")
         result, data = self.mail.search(None, "ALL")
         email_ids = data[0].split()
         self.email_list = list(reversed(email_ids))
 
+    # Displays emails and updates UI
     def display_emails_and_update_ui(self, page):
         self.display_emails(page)
         self.stack.set_visible_child(self.stack.get_child_by_name("email_list"))
 
+    # Displays emails for the current page
     def display_emails(self, page):
         self.email_list_store.clear()
 
@@ -258,15 +288,17 @@ class EmailClient(Gtk.ApplicationWindow):
         self.next_button.set_sensitive(end < len(self.email_list))
         self.page_label.set_text(f"Page {page + 1}")
 
+    # Parses date string to a formatted date
     def parse_date(self, date_string):
-        # Parse the date string and return a formatted date
-        # This is a simple implementation; you might want to improve it
+        if isinstance(date_string, email.header.Header):
+            date_string = str(date_string)
         try:
             parsed_date = email.utils.parsedate_to_datetime(date_string)
             return parsed_date.strftime("%Y-%m-%d %H:%M")
-        except:
-            return date_string
+        except (TypeError, ValueError):
+            return str(date_string)
 
+    # Decodes email header fields
     def decode_header_field(self, field):
         decoded_parts = decode_header(field)
         decoded_field = ""
@@ -281,22 +313,22 @@ class EmailClient(Gtk.ApplicationWindow):
             decoded_field += decoded_part
         return decoded_field
 
+    # Handles search button click
     def on_search_button_clicked(self, widget):
         search_text = self.search_entry.get_text().strip()
         if not search_text:
-            return  # Don't perform empty searches
+            return
         
         self.email_list_store.clear()
         
-        # Disable the search button and show a spinner
         widget.set_sensitive(False)
         spinner = Gtk.Spinner()
         spinner.start()
         widget.set_child(spinner)
         
-        # Start the search in a separate thread
         threading.Thread(target=self.perform_search, args=(search_text, widget), daemon=True).start()
 
+    # Performs email search
     def perform_search(self, search_text, search_button):
         results = []
         search_pattern = re.compile(re.escape(search_text), re.IGNORECASE)
@@ -310,7 +342,6 @@ class EmailClient(Gtk.ApplicationWindow):
             sender = self.decode_header_field(email_message["From"])
             subject = self.decode_header_field(email_message["Subject"])
             
-            # Search in the email body as well
             body = self.get_email_body(email_message)
 
             if (search_pattern.search(sender) or 
@@ -318,9 +349,9 @@ class EmailClient(Gtk.ApplicationWindow):
                 search_pattern.search(body)):
                 results.append([date, sender, subject, email_id.decode()])
 
-        # Update the UI in the main thread
         GLib.idle_add(self.update_search_results, results, search_button)
 
+    # Extracts email body
     def get_email_body(self, email_message):
         if email_message.is_multipart():
             for part in email_message.walk():
@@ -328,38 +359,40 @@ class EmailClient(Gtk.ApplicationWindow):
                     return part.get_payload(decode=True).decode(errors='ignore')
         else:
             return email_message.get_payload(decode=True).decode(errors='ignore')
-        return ""  # Return empty string if no text/plain part found
-
+        return "" 
+    # Updates search results
     def update_search_results(self, results, search_button):
         for result in results:
             self.email_list_store.append(result)
         
-        # Re-enable the search button and restore its label
         search_button.set_sensitive(True)
         search_button.set_child(None)
         search_button.set_label("Search")
         
-        # Update the status or show a message about search results
         if not results:
-            print("No results found")  # You might want to show this in the UI
+            print("No results found")
         else:
-            print(f"Found {len(results)} results")  # You might want to show this in the UI
+            print(f"Found {len(results)} results")
 
+    # Handles previous button click
     def on_prev_button_clicked(self, widget):
         if self.current_page > 0:
             self.current_page -= 1
             self.display_emails(self.current_page)
 
+    # Handles next button click
     def on_next_button_clicked(self, widget):
         if (self.current_page + 1) * self.emails_per_page < len(self.email_list):
             self.current_page += 1
             self.display_emails(self.current_page)
 
+    # Handles email selection
     def on_email_selected(self, treeview, path, column):
         model = treeview.get_model()
-        email_id = model[path][3]  # Get the email ID from the fourth column
+        email_id = model[path][3]
         self.display_email_content(email_id)
 
+    # Displays email content
     def display_email_content(self, email_id):
         result, data = self.mail.fetch(email_id, '(RFC822)')
         raw_email = data[0][1]
@@ -385,8 +418,22 @@ class EmailClient(Gtk.ApplicationWindow):
 
         self.stack.set_visible_child_name("email_content")
 
+    # Handles back to list button click
     def on_back_to_list_clicked(self, button):
         self.stack.set_visible_child_name("email_list")
+
+    # Handles logout button click
+    def on_logout_clicked(self, widget):
+        if hasattr(self, 'mail'):
+            try:
+                self.mail.logout()
+            except:
+                pass
+        self.email_list_store.clear()
+        self.stack.set_visible_child_name("login")
+        self.logout_button.set_visible(False)
+        self.login_entry.set_text("")
+        print("Logged out successfully")
 
 app = Gtk.Application(application_id='com.example.emailclient')
 app.connect('activate', lambda app: EmailClient(application=app).show())
