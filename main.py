@@ -39,7 +39,7 @@ def get_imap_settings(email):
 class EmailClient(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.set_title("IMAP Email Client")
+        self.set_title("Mini Email Client")
         self.set_default_size(800, 600)
 
         self.create_main_layout()
